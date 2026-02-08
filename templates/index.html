@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Campus Compass</title>
+  <meta charset="UTF-8">
+
+  <style>
+    :root {
+      --deep: #001D39;
+      --navy: #0A4174;
+      --path: #2C3E91;
+      --pathGlow: #4F6FD6;
+      --sky: #6EA2B3;
+      --light: #7BBDE8;
+      --mist: #BDD8E9;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(circle at top, #001D39, #000814);
+      color: var(--mist);
+      overflow: hidden;
+    }
+
+    canvas#stars,
+    canvas#space {
+      position: fixed;
+      inset: 0;
+      z-index: -3;
+    }
+
+    canvas#space { z-index: -2; }
+
+    .app {
+      max-width: 1200px;
+      margin: 30px auto;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 24px;
+    }
+
+    .panel, .map-area {
+      background: linear-gradient(160deg, #001D39, #0A4174);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 0 40px rgba(123,189,232,0.25);
+    }
+
+    h2, h3 {
+      margin-top: 0;
+      color: var(--light);
+      letter-spacing: 1px;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 14px;
+      display: block;
+    }
+
+    select, input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      border-radius: 12px;
+      border: none;
+      background: #001D39;
+      color: var(--mist);
+      box-shadow: inset 0 0 0 1px #4E8E82;
+    }
+
+    .voice-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    button {
+      background: linear-gradient(135deg, #7BBDE8, #6EA2B3);
+      color: #001D39;
+      font-weight: 700;
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      box-shadow: 0 0 12px rgba(123,189,232,0.5);
+    }
+
+    .voice-row button {
+      width: 60px;
+      font-size: 18px;
+    }
+
+    .main-btn {
+      margin-top: 20px;
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+    }
+
+    .floor-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .floor-controls button {
+      flex: 1;
+      padding: 10px;
+      font-size: 14px;
+    }
+
+    canvas#map {
+      border-radius: 16px;
+      background: #000;
+      box-shadow: 0 0 30px rgba(110,162,179,0.3);
+    }
+
+    .credits {
+      position: fixed;
+      bottom: 12px;
+      right: 16px;
+      font-size: 12px;
+      opacity: 0.65;
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+
+<body>
+
+<canvas id="stars"></canvas>
+<canvas id="space"></canvas>
+
+<div class="app">
+
+  <div class="panel">
+    <h2>🧭 Campus Compass</h2>
+
+    <label>Building</label>
+    <div class="voice-row">
+      <select id="building">
+        {% for b in buildings %}
+          <option value="{{b}}">{{b}}</option>
+        {% endfor %}
+      </select>
+      <button onclick="voiceBuilding()">🎤</button>
+    </div>
+
+    <label>Start Location</label>
+    <div class="voice-row">
+      <input id="start" placeholder="Entrance / Room 1101 / Lab">
+      <button onclick="voiceRoom('start')">🎤</button>
+    </div>
+
+    <label>Destination</label>
+    <div class="voice-row">
+      <input id="end" placeholder="Exit / Room 1203 / Library">
+      <button onclick="voiceRoom('end')">🎤</button>
+    </div>
+
+    <button class="main-btn" onclick="go()">Navigate</button>
+  </div>
+
+  <div class="map-area">
+    <h3 id="floorLabel">Map</h3>
+
+    <div class="floor-controls">
+      <button onclick="prevFloor()">Previous Floor</button>
+      <button onclick="nextFloor()">Next Floor</button>
+    </div>
+
+    <canvas id="map" width="900" height="520"></canvas>
+  </div>
+
+</div>
+
+<div class="credits">
+  Made by-<br>
+  Drivjot, Arcco, Kaavya, Sahana
+</div>
+
+<script>
+/* ================= STARFIELD + MILKY WAY ================= */
+const starC = document.getElementById("stars");
+const sctx = starC.getContext("2d");
+const spaceC = document.getElementById("space");
+const spctx = spaceC.getContext("2d");
+
+let stars = [];
+let milkyWay = [];
+
+function resizeBG() {
+  starC.width = spaceC.width = innerWidth;
+  starC.height = spaceC.height = innerHeight;
+
+  // stars
+  stars = Array.from({ length: 220 }, () => ({
+    x: Math.random() * innerWidth,
+    y: Math.random() * innerHeight,
+    r: Math.random() * 1.4,
+    v: 0.15 + Math.random() * 0.35
+  }));
+
+  // Milky Way band particles (DENSE + BRIGHT)
+  milkyWay = Array.from({ length: 3500 }, () => ({
+    x: (Math.random() - 0.5) * innerWidth * 1.8,
+    y: (Math.random() - 0.5) * 180,
+    r: 0.6 + Math.random() * 1.6,
+    a: 0.08 + Math.random() * 0.18
+  }));
+}
+resizeBG();
+onresize = resizeBG;
+
+function drawMilkyWay() {
+  const cx = innerWidth / 2;
+  const cy = innerHeight / 2;
+
+  spctx.save();
+  spctx.translate(cx, cy);
+  spctx.rotate(-Math.PI / 5.5);
+
+  /* --- Galactic core (VERY visible) --- */
+  const core = spctx.createRadialGradient(0, 0, 0, 0, 0, 360);
+  core.addColorStop(0, "rgba(200,230,255,0.45)");
+  core.addColorStop(0.4, "rgba(120,180,255,0.25)");
+  core.addColorStop(1, "rgba(0,0,0,0)");
+  spctx.fillStyle = core;
+  spctx.beginPath();
+  spctx.arc(0, 0, 360, 0, Math.PI * 2);
+  spctx.fill();
+
+  /* --- Dust band --- */
+  milkyWay.forEach(p => {
+    spctx.globalAlpha = p.a;
+    spctx.fillStyle = "#cfe9ff";
+    spctx.beginPath();
+    spctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    spctx.fill();
+  });
+
+  spctx.restore();
+  spctx.globalAlpha = 1;
+}
+
+function animateBG() {
+  sctx.clearRect(0, 0, starC.width, starC.height);
+  spctx.clearRect(0, 0, spaceC.width, spaceC.height);
+
+  /* stars */
+  sctx.fillStyle = "#ffffff";
+  stars.forEach(s => {
+    s.y += s.v;
+    if (s.y > innerHeight) s.y = 0;
+    sctx.beginPath();
+    sctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    sctx.fill();
+  });
+
+  drawMilkyWay();
+  requestAnimationFrame(animateBG);
+}
+animateBG();
+
+
+
+/* ================= MAP ================= */
+const canvas=document.getElementById("map");
+const ctx=canvas.getContext("2d");
+const img=new Image();
+
+let floorOrder=[], floorPoints={}, floorImages={}, currentFloorIndex=0;
+let pulse=0;
+
+function go(){
+  fetch("/navigate",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      building:building.value,
+      start:start.value.trim().toUpperCase(),
+      end:end.value.trim().toUpperCase()
+    })
+  }).then(r=>r.json()).then(d=>{
+    floorOrder=d.floor_order;
+    floorPoints=d.floor_points;
+    floorImages=d.floor_images;
+    currentFloorIndex=floorOrder.indexOf(d.start_floor);
+    drawLoop();
+  });
+}
+
+function drawLoop(){
+  requestAnimationFrame(drawLoop);
+  if(!floorOrder.length) return;
+
+  const f=floorOrder[currentFloorIndex];
+  const pts=floorPoints[f];
+  floorLabel.innerText=`Floor ${f} (${currentFloorIndex+1}/${floorOrder.length})`;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  img.src=floorImages[f];
+  const scale=Math.min(canvas.width/img.width,canvas.height/img.height);
+  const ox=(canvas.width-img.width*scale)/2;
+  const oy=(canvas.height-img.height*scale)/2;
+  ctx.drawImage(img,ox,oy,img.width*scale,img.height*scale);
+
+  pulse+=0.02;                         // 🔻 reduced pulse speed
+  const glow=10+4*Math.sin(pulse);     // 🔻 reduced glow amount
+
+  const grad=ctx.createLinearGradient(0,oy,0,oy+img.height*scale);
+  grad.addColorStop(0,"#0A4174");
+  grad.addColorStop(1,"#2C3E91");
+
+  ctx.strokeStyle=grad;
+  ctx.lineWidth=3;
+  ctx.shadowColor="#4F6FD6";
+  ctx.shadowBlur=glow;
+  ctx.lineCap="round";
+
+  for(let i=0;i<pts.length-2;i+=2){
+    const isLast = (i === pts.length - 4);
+    drawArrow(
+      pts[i]*scale+ox, pts[i+1]*scale+oy,
+      pts[i+2]*scale+ox, pts[i+3]*scale+oy,
+      isLast
+    );
+  }
+}
+
+function drawArrow(x1,y1,x2,y2,last=false){
+  const a=Math.atan2(y2-y1,x2-x1);
+
+  // arrow body (unchanged)
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.lineTo(x2,y2);
+  ctx.stroke();
+
+  // arrowhead
+  const h = last ? 10 : 5;
+  ctx.beginPath();
+  ctx.strokeStyle = last ? "#001D39" : ctx.strokeStyle; // 🔵 last only dark navy
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-h*Math.cos(a-Math.PI/12),y2-h*Math.sin(a-Math.PI/12));
+  ctx.lineTo(x2-h*Math.cos(a+Math.PI/12),y2-h*Math.sin(a+Math.PI/12));
+  ctx.stroke();
+}
+
+function nextFloor(){
+  if(currentFloorIndex<floorOrder.length-1) currentFloorIndex++;
+}
+function prevFloor(){
+  if(currentFloorIndex>0) currentFloorIndex--;
+}
+
+/* ================= VOICE ================= */
+function startRecognition(cb){
+  if(!("webkitSpeechRecognition"in window)){alert("Use Chrome");return;}
+  const r=new webkitSpeechRecognition();
+  r.lang="en-IN";
+  r.onresult=e=>cb(e.results[0][0].transcript.toLowerCase());
+  r.start();
+}
+
+function normalizeLocation(text){
+  return text
+    .replace("room","")
+    .replace("the","")
+    .trim()
+    .toUpperCase();
+}
+
+function voiceRoom(t){
+  startRecognition(tx=>{
+    const loc = normalizeLocation(tx);
+    if(loc) t==="start"?start.value=loc:end.value=loc;
+  });
+}
+
+function voiceBuilding(){
+  startRecognition(tx=>{
+    const s=tx.replace(/\s/g,"").toUpperCase();
+    for(const o of building.options){
+      if(o.value.replace(/\s/g,"").toUpperCase()===s){
+        building.value=o.value;
+        break;
+      }
+    }
+  });
+}
+</script>
+
+</body>
+</html>

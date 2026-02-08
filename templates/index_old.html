@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Indoor Navigation</title>
+
+  <style>
+    :root {
+      --blue: #1976d2;
+      --yellow: #fbc02d;
+      --red: #c62828;
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --text: #263238;
+    }
+
+    body {
+      margin: 0;
+      background: linear-gradient(120deg, #0d47a1, #1976d2);
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+
+    .app {
+      max-width: 1200px;
+      margin: 30px auto;
+      background: var(--bg);
+      border-radius: 16px;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+
+    .panel, .map-area {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+
+    h2, h3 { margin-top: 0; color: #0d47a1; }
+
+    label {
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 12px;
+      display: block;
+    }
+
+    select, input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      font-size: 15px;
+    }
+
+    button {
+      margin-top: 18px;
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: none;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      background: linear-gradient(135deg, #fbc02d, #fff176);
+    }
+
+    .floor-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .floor-controls button {
+      width: 48%;
+      padding: 10px;
+      font-size: 14px;
+    }
+
+    canvas {
+      border-radius: 12px;
+      border: 2px solid #e0e0e0;
+      background: white;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <!-- LEFT PANEL -->
+  <div class="panel">
+    <h2>Indoor Navigation</h2>
+
+    <label>Building</label>
+    <select id="building">
+      {% for b in buildings %}
+        <option value="{{b}}">{{b}}</option>
+      {% endfor %}
+    </select>
+
+    <label>Start Room</label>
+    <input id="start" placeholder="1101">
+
+    <label>Destination</label>
+    <input id="end" placeholder="EXIT">
+
+    <button onclick="go()">Find Path</button>
+  </div>
+
+  <!-- MAP -->
+  <div class="map-area">
+    <div class="floor-controls">
+      <button onclick="prevFloor()">⬆ Previous Floor</button>
+      <button onclick="nextFloor()">Next Floor ⬇</button>
+    </div>
+
+    <h3 id="floorLabel">Map</h3>
+    <canvas id="map" width="900" height="520"></canvas>
+  </div>
+
+</div>
+
+<script>
+const canvas = document.getElementById("map");
+const ctx = canvas.getContext("2d");
+const img = new Image();
+
+let floorOrder = [];
+let floorPoints = {};
+let floorImages = {};
+let currentFloorIndex = 0;
+
+function go() {
+  fetch("/navigate", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      building: building.value,
+      start: start.value,
+      end: end.value
+    })
+  })
+  .then(r => r.json())
+  .then(data => {
+    floorOrder = data.floor_order;
+    floorPoints = data.floor_points;
+    floorImages = data.floor_images;
+    currentFloorIndex = floorOrder.indexOf(data.start_floor);
+    renderFloor();
+  });
+}
+
+function renderFloor() {
+  const floor = floorOrder[currentFloorIndex];
+  const pts = floorPoints[floor];
+  const imgPath = floorImages[floor];
+
+  floorLabel.innerText =
+    `Floor ${floor} (${currentFloorIndex+1}/${floorOrder.length})`;
+
+  img.onload = () => {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const scale = Math.min(
+      canvas.width / img.width,
+      canvas.height / img.height
+    );
+
+    const dw = img.width * scale;
+    const dh = img.height * scale;
+    const ox = (canvas.width - dw) / 2;
+    const oy = (canvas.height - dh) / 2;
+
+    ctx.drawImage(img, ox, oy, dw, dh);
+
+    const grad = ctx.createLinearGradient(
+      ox, oy, ox + dw, oy + dh
+    );
+    grad.addColorStop(0, "#1976d2");
+    grad.addColorStop(0.5, "#fbc02d");
+    grad.addColorStop(1, "#c62828");
+
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+
+    for (let i = 0; i < pts.length; i += 2) {
+      const x = pts[i] * scale + ox;
+      const y = pts[i+1] * scale + oy;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+
+    ctx.stroke();
+
+    drawDot(pts[0]*scale+ox, pts[1]*scale+oy, "#1976d2");
+    drawDot(
+      pts[pts.length-2]*scale+ox,
+      pts[pts.length-1]*scale+oy,
+      "#c62828"
+    );
+  };
+
+  img.src = imgPath;
+}
+
+function drawDot(x, y, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 8, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function nextFloor() {
+  if (currentFloorIndex < floorOrder.length - 1) {
+    currentFloorIndex++;
+    renderFloor();
+  }
+}
+
+function prevFloor() {
+  if (currentFloorIndex > 0) {
+    currentFloorIndex--;
+    renderFloor();
+  }
+}
+</script>
+
+</body>
+</html>
